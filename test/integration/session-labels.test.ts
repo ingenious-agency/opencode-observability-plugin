@@ -34,6 +34,7 @@ describe("session labels", () => {
           "session-1",
           {
             sessionId: "run-1",
+            traceName: "build #2",
             tags: ["loop", "stage:build"],
             metadata: { stageId: "build", attempt: 2 },
           },
@@ -55,6 +56,7 @@ describe("session labels", () => {
     }
 
     const labeled = {
+      "langfuse.trace.name": "build #2",
       "session.id": "run-1",
       "langfuse.trace.tags": ["loop", "stage:build"],
       "langfuse.trace.metadata.stageId": "build",

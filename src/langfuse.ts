@@ -1602,11 +1602,12 @@ export type LangfuseTraceState = {
   sessionLabels: Map<string, SessionLabels>;
 };
 
-// Prompt metadata may carry `langfuse: { sessionId, tags, metadata }`, applied
+// Prompt metadata may carry `langfuse: { sessionId, traceName, tags, metadata }`, applied
 // to every span of that OpenCode session and its subagent sessions.
 const PromptMetadataSchema = Schema.Struct({
   langfuse: Schema.Struct({
     sessionId: Schema.optional(Schema.NonEmptyString),
+    traceName: Schema.optional(Schema.NonEmptyString),
     tags: Schema.optional(Schema.Array(Schema.String)),
     metadata: Schema.optional(
       Schema.Record({ key: Schema.String, value: Schema.Unknown }),
@@ -1957,6 +1958,9 @@ export const makeSessionLabelSpanProcessor = (
           : traceState.sessionLabels.get(parentSessionID));
       if (!labels) {
         return;
+      }
+      if (labels.traceName != null) {
+        span.setAttribute("langfuse.trace.name", labels.traceName);
       }
       if (labels.sessionId != null) {
         span.setAttribute("session.id", labels.sessionId);
