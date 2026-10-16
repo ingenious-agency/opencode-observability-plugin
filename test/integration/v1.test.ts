@@ -394,6 +394,7 @@ const completeGeneration = async (input: {
   started: number;
   completed: number;
   text?: string;
+  cost?: number;
 }) => {
   storeMessage(input.sessionID, {
     info: {
@@ -443,7 +444,7 @@ const completeGeneration = async (input: {
         providerID: "test-provider",
         path: { cwd: "/test", root: "/test" },
         finish: "stop",
-        cost: 0.01,
+        cost: input.cost ?? 0.01,
         tokens: {
           input: 10,
           output: 5,
@@ -785,10 +786,10 @@ describe("built plugin", { concurrent: false }, () => {
       getJsonAttribute(firstGeneration, "langfuse.observation.usage_details"),
     ).toEqual({
       input: 10,
-      output: 5,
+      output: 7,
       reasoning: 2,
-      cache_read: 3,
-      cache_write: 1,
+      input_cache_read: 3,
+      input_cache_creation: 1,
       total: 17,
     });
     expect(
@@ -1236,10 +1237,15 @@ describe("built plugin", { concurrent: false }, () => {
       assistantMessageID,
       started: startedAt + 100,
       completed: startedAt + 400,
+      cost: 0,
     });
 
     const { spans } = await flushSession(sessionID);
     const generation = getSpan(spans, "opencode.generation");
+    // A zero cost is left for Langfuse to infer from usage.
+    expect(generation.attributes).not.toHaveProperty(
+      "langfuse.observation.cost_details",
+    );
 
     expect(getJsonAttribute(generation, "langfuse.observation.output")).toEqual(
       [
@@ -2626,10 +2632,10 @@ describe("built plugin", { concurrent: false }, () => {
       getJsonAttribute(generation, "langfuse.observation.usage_details"),
     ).toEqual({
       input: 10,
-      output: 5,
+      output: 7,
       reasoning: 2,
-      cache_read: 3,
-      cache_write: 1,
+      input_cache_read: 3,
+      input_cache_creation: 1,
       total: 17,
     });
     const output = Schema.decodeUnknownSync(

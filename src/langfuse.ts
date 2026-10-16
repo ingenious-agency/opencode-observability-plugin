@@ -731,6 +731,22 @@ export class LangfuseClient {
 
     const output = input.output ?? this.getAssistantMessage(input.messageID);
     const turn = this.getTurnObservation(input.sessionID, input.parentID);
+    // Langfuse's standard usage keys, so its model prices apply. Reasoning is
+    // billed as output; `reasoning` stays as an unpriced breakdown.
+    const usageDetails = JSON.stringify({
+      input: input.tokens.input,
+      output: input.tokens.output + input.tokens.reasoning,
+      reasoning: input.tokens.reasoning,
+      input_cache_read: input.tokens.cache.read,
+      input_cache_creation: input.tokens.cache.write,
+      total:
+        input.tokens.total ??
+        input.tokens.input + input.tokens.output + input.tokens.reasoning,
+    });
+    // A reported zero (subscriptions, free tiers) would override Langfuse's
+    // own cost inference from usage, so only a positive cost is sent.
+    const costDetails =
+      input.cost > 0 ? JSON.stringify({ total: input.cost }) : undefined;
 
     if (input.mode !== "compaction") {
       turn?.span.setAttribute(
@@ -756,21 +772,14 @@ export class LangfuseClient {
       );
       step.span.setAttribute(
         "langfuse.observation.usage_details",
-        JSON.stringify({
-          input: input.tokens.input,
-          output: input.tokens.output,
-          reasoning: input.tokens.reasoning,
-          cache_read: input.tokens.cache.read,
-          cache_write: input.tokens.cache.write,
-          total:
-            input.tokens.total ??
-            input.tokens.input + input.tokens.output + input.tokens.reasoning,
-        }),
+        usageDetails,
       );
-      step.span.setAttribute(
-        "langfuse.observation.cost_details",
-        JSON.stringify({ total: input.cost }),
-      );
+      if (costDetails != null) {
+        step.span.setAttribute(
+          "langfuse.observation.cost_details",
+          costDetails,
+        );
+      }
       step.span.setAttribute(
         "langfuse.observation.metadata",
         JSON.stringify({
@@ -820,19 +829,10 @@ export class LangfuseClient {
               }
             : {}),
           "langfuse.observation.output": JSON.stringify(output),
-          "langfuse.observation.usage_details": JSON.stringify({
-            input: input.tokens.input,
-            output: input.tokens.output,
-            reasoning: input.tokens.reasoning,
-            cache_read: input.tokens.cache.read,
-            cache_write: input.tokens.cache.write,
-            total:
-              input.tokens.total ??
-              input.tokens.input + input.tokens.output + input.tokens.reasoning,
-          }),
-          "langfuse.observation.cost_details": JSON.stringify({
-            total: input.cost,
-          }),
+          "langfuse.observation.usage_details": usageDetails,
+          ...(costDetails != null
+            ? { "langfuse.observation.cost_details": costDetails }
+            : {}),
           "langfuse.observation.metadata": JSON.stringify({
             messageID: input.messageID,
             parentID: input.parentID,
