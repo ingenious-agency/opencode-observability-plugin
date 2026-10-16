@@ -10,6 +10,7 @@ import SourcePlugin from "../../src/v2.js";
 const runtime = vi.hoisted(() => ({
   createLangfuseRuntime: vi.fn(),
   traceUserPrompt: vi.fn(),
+  labelSession: vi.fn(),
   setGenerationInputSnapshot: vi.fn(),
   rememberToolCall: vi.fn(),
   traceToolStart: vi.fn(),
@@ -301,6 +302,10 @@ describe("OpenCode 2 package entrypoint", () => {
         sessionID: "session-1",
         messageID: "user-1",
         content: [{ type: "text", text: "Say hello" }],
+      });
+      expect(runtime.labelSession).toHaveBeenCalledWith({
+        sessionID: "session-1",
+        metadata: undefined,
       });
     });
     await vi.waitFor(() => {

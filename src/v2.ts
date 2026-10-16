@@ -39,6 +39,10 @@ const LangfusePlugin = {
     registrations.push(
       await ctx.session.hook("prompt", (input) => {
         userMessageIDs.set(input.sessionID, input.messageID);
+        langfuse.labelSession({
+          sessionID: input.sessionID,
+          metadata: input.metadata,
+        });
         langfuse.traceUserPrompt({
           sessionID: input.sessionID,
           messageID: input.messageID,

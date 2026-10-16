@@ -10,7 +10,7 @@ import {
   resourceFromAttributes,
 } from "@opentelemetry/resources";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-import { Context as EffectContext, Effect } from "effect";
+import { Context as EffectContext, Effect, Option, Schema } from "effect";
 
 import { PLUGIN_VERSION } from "./version.js";
 
@@ -51,9 +51,18 @@ export class LangfuseClient {
     this.traceState.sessionParentIds.clear();
     this.traceState.sessionHistories.clear();
     this.traceState.pendingUserMessageIdsBySession.clear();
+    this.traceState.sessionLabels.clear();
+  }
+
+  labelSession(input: { sessionID: string; metadata?: unknown }) {
+    const labels = parseSessionLabels(input.metadata);
+    if (labels) {
+      this.traceState.sessionLabels.set(input.sessionID, labels);
+    }
   }
 
   clearSessionTraceState(sessionID: string) {
+    this.traceState.sessionLabels.delete(sessionID);
     for (const [messageID, parent] of this.assistantParents) {
       if (parent.sessionID === sessionID) {
         this.assistantParents.delete(messageID);
@@ -1590,7 +1599,28 @@ export type LangfuseTraceState = {
   sessionParentIds: Map<string, string>;
   sessionHistories: Map<string, SessionHistory>;
   pendingUserMessageIdsBySession: Map<string, string>;
+  sessionLabels: Map<string, SessionLabels>;
 };
+
+// Prompt metadata may carry `langfuse: { sessionId, tags, metadata }`, applied
+// to every span of that OpenCode session and its subagent sessions.
+const PromptMetadataSchema = Schema.Struct({
+  langfuse: Schema.Struct({
+    sessionId: Schema.optional(Schema.NonEmptyString),
+    tags: Schema.optional(Schema.Array(Schema.String)),
+    metadata: Schema.optional(
+      Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+    ),
+  }),
+});
+
+type SessionLabels = typeof PromptMetadataSchema.Type.langfuse;
+
+/** @internal */
+export const parseSessionLabels = (metadata: unknown) =>
+  Option.getOrUndefined(
+    Schema.decodeUnknownOption(PromptMetadataSchema)(metadata),
+  )?.langfuse;
 
 export type MessagePart = Extract<
   Parameters<NonNullable<Hooks["event"]>>[0]["event"],
@@ -1909,6 +1939,47 @@ const makeOpencodeVersionSpanProcessor = (version: string) =>
     forceFlush: () => Promise.resolve(),
   }) satisfies SpanProcessor;
 
+/** @internal */
+export const makeSessionLabelSpanProcessor = (
+  traceState: Pick<LangfuseTraceState, "sessionLabels" | "sessionParentIds">,
+) =>
+  ({
+    onStart: (span: Span) => {
+      const sessionID = span.attributes["session.id"];
+      if (typeof sessionID !== "string") {
+        return;
+      }
+      const parentSessionID = traceState.sessionParentIds.get(sessionID);
+      const labels =
+        traceState.sessionLabels.get(sessionID) ??
+        (parentSessionID == null
+          ? undefined
+          : traceState.sessionLabels.get(parentSessionID));
+      if (!labels) {
+        return;
+      }
+      if (labels.sessionId != null) {
+        span.setAttribute("session.id", labels.sessionId);
+        span.setAttribute(
+          "langfuse.trace.metadata.opencodeSessionID",
+          sessionID,
+        );
+      }
+      if (labels.tags != null) {
+        span.setAttribute("langfuse.trace.tags", [...labels.tags]);
+      }
+      for (const [key, value] of Object.entries(labels.metadata ?? {})) {
+        span.setAttribute(
+          `langfuse.trace.metadata.${key}`,
+          typeof value === "string" ? value : JSON.stringify(value),
+        );
+      }
+    },
+    onEnd: () => undefined,
+    shutdown: () => Promise.resolve(),
+    forceFlush: () => Promise.resolve(),
+  }) satisfies SpanProcessor;
+
 // Langfuse's OTEL processor may auto-mark exported spans as app roots, this overrides that.
 const makeAppRootSpanProcessor = (tracerName: string) =>
   ({
@@ -1961,6 +2032,7 @@ export const createLangfuseClient = (input: {
       sessionParentIds: new Map<string, string>(),
       sessionHistories: new Map<string, SessionHistory>(),
       pendingUserMessageIdsBySession: new Map<string, string>(),
+      sessionLabels: new Map<string, SessionLabels>(),
     };
 
     const processor = new LangfuseSpanProcessor({
@@ -1991,6 +2063,7 @@ export const createLangfuseClient = (input: {
         ...(input.userId != null
           ? [makeUserIdSpanProcessor(input.userId)]
           : []),
+        makeSessionLabelSpanProcessor(traceState),
         processor,
         makeAppRootSpanProcessor(traceState.tracerName),
       ],
