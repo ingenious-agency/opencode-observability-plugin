@@ -1,0 +1,1 @@
+{"version":3,"file":"index.js","names":["V2Plugin","V1Plugin"],"sources":["../src/index.ts"],"sourcesContent":["import V1Plugin from \"./v1.js\";\nimport V2Plugin from \"./v2.js\";\n\nexport default {\n  ...V2Plugin,\n  server: V1Plugin,\n};\n"],"mappings":";;;AAGA,IAAA,cAAe;CACb,GAAGA;CACH,QAAQC;AACV"}
